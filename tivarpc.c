@@ -26,12 +26,15 @@
 #include "semphr.h"
 #include "rpc_commands.h"
 
+
 //Defino a un tipo que es un puntero a funcion con el prototipo que tienen que tener las funciones que definamos
 typedef int32_t (*rpc_function_prototype)(uint32_t param_size, void *param);
 
-static uint8_t Rxframe[MAX_FRAME_SIZE];	//Usar una global permite ahorrar pila en la tarea de RX.
+static uint8_t Rxframe[MAX_FRAME_SIZE]; //Usar una global permite ahorrar pila en la tarea de RX.
 static uint8_t Txframe[MAX_FRAME_SIZE]; //Usar una global permite ahorrar pila en las tareas, pero hay que tener cuidado al transmitir desde varias tareas!!!!
 static uint32_t gRemoteProtocolErrors=0;
+
+
 
 //Funciones "internas//
 static int32_t TivaRPC_ReceiveFrame(uint8_t *frame, int32_t maxFrameSize);
@@ -69,7 +72,7 @@ static int32_t RPC_LEDGpio(uint32_t param_size, void *param)
     if (check_and_extract_command_param(param, param_size, sizeof(parametro),&parametro)>0)
     {
         GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3,parametro.value);
-        return 0;	//Devuelve Ok (valor mayor no negativo)
+        return 0;   //Devuelve Ok (valor mayor no negativo)
     }
     else
     {
@@ -78,9 +81,22 @@ static int32_t RPC_LEDGpio(uint32_t param_size, void *param)
 }
 
 //Funcion que se ejecuta cuando recibimos un comando que no tenemos aun implementado
-static int32_t RPC_UnimplementedCommand(uint32_t param_size, void *param)
+static int32_t RPC_CambioModo(uint32_t param_size, void *param)
 {
-    return PROT_ERROR_UNIMPLEMENTED_COMMAND;
+    PARAMETERS_CHANGE_MODE parametro;
+
+    if (check_and_extract_command_param(param, param_size, sizeof(parametro),&parametro)>0){
+
+        if(parametro.modo==0){
+            RGBDisable();
+            ROM_GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3);
+        }
+        else if (parametro.modo)
+        {
+            RGBEnable();
+        }
+    }
+    return 0;
 }
 
 //Funcion que se ejecuta cuando llega el comando que configura el BRILLO
@@ -95,12 +111,89 @@ static int32_t RPC_LEDPwmBrightness(uint32_t param_size, void *param)
 
         RGBIntensitySet(parametro.rIntensity);
 
-        return 0;	//Devuelve Ok (valor mayor no negativo)
+        return 0;   //Devuelve Ok (valor mayor no negativo)
     }
     else
     {
         return PROT_ERROR_INCORRECT_PARAM_SIZE; //Devuelve un error
     }
+}
+
+//Funcion que se ejecuta cuando llega el comando que configura el COLOR
+static int32_t RPC_LEDPwmRGB(uint32_t param_size, void *param)
+{
+    PARAMETERS_RGB parametro;
+    uint32_t arrayRGB[3];
+
+    if (check_and_extract_command_param(param, param_size, sizeof(parametro),&parametro)>0)
+    {
+        arrayRGB[0]=parametro.r<<8;
+        arrayRGB[1]=parametro.g<<8;
+        arrayRGB[2]=parametro.b<<8;
+
+        RGBColorSet(arrayRGB);
+
+        return 0;   //Devuelve Ok (valor mayor no negativo)
+    }
+    else
+    {
+        return PROT_ERROR_INCORRECT_PARAM_SIZE; //Devuelve un error
+    }
+}
+
+//Funcion que se ejecuta cuando llega un SONDEO
+static int32_t RPC_Sondeo(uint32_t param_size, void *param)
+{
+    int32_t numdatos;
+    uint8_t ui8Buttons, ui8Changed;
+
+    PARAMETERS_SONDEO parametro;
+
+    ButtonsPoll(&ui8Changed, &ui8Buttons);
+
+    if((RIGHT_BUTTON & ui8Buttons)&&(LEFT_BUTTON & ui8Buttons)){
+        parametro.izq=1;
+        parametro.der=1;
+    }
+    else if(LEFT_BUTTON & ui8Buttons){
+        parametro.izq=1;
+        parametro.der=0;
+    }
+    else if(RIGHT_BUTTON & ui8Buttons){
+        parametro.izq=0;
+        parametro.der=1;
+    }
+    else{
+        parametro.izq=0;
+        parametro.der=0;
+    }
+        numdatos=TivaRPC_SendFrame(COMMAND_SONDEO,&parametro,sizeof(parametro));
+
+    return numdatos;
+}
+
+
+//Funcion que se ejecuta cuando se habilita la lectura por interrupción de los pulsadores
+static int32_t RPC_Interrupt(uint32_t param_size, void *param)
+{
+    int32_t numdatos;
+    PARAMETERS_INTERRUPT parametro;
+
+    if (check_and_extract_command_param(param, param_size, sizeof(parametro),&parametro)>0){
+        if(parametro.dato > 0){
+            GPIOIntEnable(GPIO_PORTF_BASE,ALL_BUTTONS);
+            IntEnable(INT_GPIOF);
+        }else{
+//            GPIOIntEnable(GPIO_PORTF_BASE,ALL_BUTTONS);
+            IntDisable(INT_GPIOF);
+            //no hace nada
+        }
+
+    }else{
+     //   return 1;
+        return PROT_ERROR_INCORRECT_PARAM_SIZE; //Devuelve un error
+    }
+
 }
 
 // *********************************************************************************************
@@ -112,7 +205,10 @@ static const rpc_function_prototype rpc_function_table[]={
                                             RPC_Ping, /* Responde al comando ping */
                                             RPC_LEDGpio, /* Responde al comando LEDS */
                                             RPC_LEDPwmBrightness, /* Responde al comando Brillo */
-                                            RPC_UnimplementedCommand /* Este comando no esta implementado aun */
+                                            RPC_CambioModo, /* Este comando cambia el modo GPIO-RGB */
+                                            RPC_LEDPwmRGB,  /* Este comando establece el color del led */
+                                            RPC_Sondeo,     /* Habilita el sondeo del estado de los pulsadores */
+                                            RPC_Interrupt   /* Habilita la interaccion con la interrupcion de los pulsadores */
 };
 
 
@@ -292,18 +388,6 @@ static int32_t TivaRPC_ReceiveFrame(uint8_t *frame, int32_t maxFrameSize)
     }
     else
     {
-
-        if (i<(MINIMUN_FRAME_SIZE-START_SIZE))
-        {
-            return PROT_ERROR_BAD_SIZE; //La trama no tiene el tamanio minimo
-        }
-        else
-        {
-            return (i-END_SIZE); //Tamanio de la trama sin los bytes de inicio y fin
-        }
+        return (i-END_SIZE);    //Devuelve el numero de bytes recibidos (quitando el de BYTE DE STOP)
     }
 }
-
-
-
-

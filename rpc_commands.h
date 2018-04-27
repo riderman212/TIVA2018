@@ -7,9 +7,9 @@
 
 #ifndef RPCCOMMANDS_H
 #define RPCCOMMANDS_H
-//Códigos de los comandos y definicion de parametros para el protocolo RPC
+//Cï¿½digos de los comandos y definicion de parametros para el protocolo RPC
 
-// El estudiante debe añadir aqui cada nuevo comando que implemente. IMPORTANTE el orden de los comandos
+// El estudiante debe aï¿½adir aqui cada nuevo comando que implemente. IMPORTANTE el orden de los comandos
 // debe SER EL MISMO aqui, y en el codigo equivalente en la parte del microcontrolador (Code Composer)
 
 typedef enum {
@@ -17,6 +17,10 @@ typedef enum {
     COMMAND_PING,
     COMMAND_LED_GPIO,
     COMMAND_LED_PWM_BRIGHTNESS,
+    COMMAND_CHANGE_MODE,
+    COMMAND_RGB,
+    COMMAND_SONDEO,
+    COMMAND_INTERRUPT,
     //etc, etc...
 } commandTypes;
 
@@ -42,6 +46,27 @@ typedef union{
 typedef struct {
     float rIntensity;
 } PARAMETERS_LED_PWM_BRIGHTNESS;
+
+typedef struct {
+    uint8_t modo;
+}  PARAMETERS_CHANGE_MODE;
+
+typedef struct {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+} PARAMETERS_RGB;
+
+typedef struct {
+    uint8_t izq;
+    uint8_t der;
+} PARAMETERS_SONDEO;
+
+typedef struct {
+    uint8_t izq;
+    uint8_t der;
+    int8_t dato;
+} PARAMETERS_INTERRUPT;
 
 #pragma pack()  //...Pero solo para los comandos que voy a intercambiar, no para el resto.
 
